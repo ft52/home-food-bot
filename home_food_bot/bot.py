@@ -77,12 +77,13 @@ conn.commit()
     ADD_CATEGORY,
     ADD_MIN_QUANTITY,
 
+    REMOVE_SELECT,
     REMOVE_QUANTITY,
 
     FAMILY_PRODUCT,
     FAMILY_USER,
 
-) = range(7)
+) = range(8)
 
 # =========================================
 # MAIN MENU
@@ -124,6 +125,13 @@ def get_main_menu():
             InlineKeyboardButton(
                 "🛒 Общий список покупок",
                 callback_data="family_show"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🗑 Удалить из покупок",
+                callback_data="family_remove"
             )
         ],
 
@@ -302,8 +310,7 @@ async def add_min_quantity(update: Update, context):
         )
 
         await update.message.reply_text(
-            f"✅ Добавлено:\n"
-            f"{name} — {quantity}",
+            f"✅ Добавлено:\n{name} — {quantity}",
             reply_markup=get_main_menu()
         )
 
@@ -409,8 +416,10 @@ async def remove_start(update: Update, context):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+    return REMOVE_SELECT
+
 # =========================================
-# SELECT PRODUCT
+# SELECT REMOVE PRODUCT
 # =========================================
 
 async def select_remove_product(update: Update, context):
@@ -507,9 +516,7 @@ async def remove_quantity(update: Update, context):
             WHERE id = ?
             """, (product_id,))
 
-            message = (
-                f"❌ {name} полностью удалён"
-            )
+            message = f"❌ {name} полностью удалён"
 
         else:
 
@@ -679,6 +686,103 @@ async def show_family_shopping(update: Update, context):
     )
 
 # =========================================
+# REMOVE FAMILY SHOPPING
+# =========================================
+
+async def remove_family_start(update: Update, context):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    cursor.execute("""
+    SELECT
+        id,
+        product_name,
+        added_by
+    FROM family_shopping
+    ORDER BY id DESC
+    """)
+
+    items = cursor.fetchall()
+
+    if not items:
+
+        await query.message.reply_text(
+            "🛒 Список покупок пуст",
+            reply_markup=get_main_menu()
+        )
+
+        return
+
+    keyboard = []
+
+    for item_id, product_name, added_by in items:
+
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{product_name} ({added_by})",
+                callback_data=f"remove_family_{item_id}"
+            )
+        ])
+
+    await query.message.reply_text(
+        "Что удалить из списка покупок?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def remove_family_item(update: Update, context):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    item_id = int(
+        query.data.replace(
+            "remove_family_",
+            ""
+        )
+    )
+
+    cursor.execute("""
+    SELECT
+        product_name,
+        added_by
+    FROM family_shopping
+    WHERE id = ?
+    """, (item_id,))
+
+    result = cursor.fetchone()
+
+    if not result:
+
+        await query.message.reply_text(
+            "❌ Элемент не найден",
+            reply_markup=get_main_menu()
+        )
+
+        return
+
+    product_name, added_by = result
+
+    cursor.execute("""
+    DELETE FROM family_shopping
+    WHERE id = ?
+    """, (item_id,))
+
+    conn.commit()
+
+    add_history(
+        f"🗑 Удалено из покупок: "
+        f"{product_name} ({added_by})"
+    )
+
+    await query.message.reply_text(
+        f"✅ Удалено:\n{product_name}",
+        reply_markup=get_main_menu()
+    )
+
+# =========================================
 # HISTORY
 # =========================================
 
@@ -710,9 +814,7 @@ async def show_history(update: Update, context):
 
     for action, created_at in items:
 
-        text += (
-            f"{created_at} — {action}\n"
-        )
+        text += f"{created_at} — {action}\n"
 
     await query.message.reply_text(
         text,
@@ -792,7 +894,7 @@ add_handler = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(
             add_start,
-            pattern="add_product"
+            pattern="^add_product$"
         )
     ],
 
@@ -848,19 +950,28 @@ remove_handler = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(
             remove_start,
-            pattern="remove_product"
+            pattern="^remove_product$"
         )
     ],
 
     states={
 
+        REMOVE_SELECT: [
+
+            CallbackQueryHandler(
+                select_remove_product,
+                pattern="^delete_"
+            )
+        ],
+
         REMOVE_QUANTITY: [
+
             MessageHandler(
                 filters.TEXT &
                 ~filters.COMMAND,
                 remove_quantity
             )
-        ]
+        ],
     },
 
     fallbacks=[
@@ -869,10 +980,12 @@ remove_handler = ConversationHandler(
             cancel
         )
     ],
+
+    per_message=False
 )
 
 # =========================================
-# FAMILY SHOPPING HANDLER
+# FAMILY HANDLER
 # =========================================
 
 family_handler = ConversationHandler(
@@ -880,7 +993,7 @@ family_handler = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(
             family_shopping_start,
-            pattern="family_add"
+            pattern="^family_add$"
         )
     ],
 
@@ -931,42 +1044,42 @@ app.add_handler(family_handler)
 app.add_handler(
     CallbackQueryHandler(
         show_products,
-        pattern="show_products"
-    )
-)
-
-app.add_handler(
-    CallbackQueryHandler(
-        remove_start,
-        pattern="remove_product"
-    )
-)
-
-app.add_handler(
-    CallbackQueryHandler(
-        select_remove_product,
-        pattern="delete_"
+        pattern="^show_products$"
     )
 )
 
 app.add_handler(
     CallbackQueryHandler(
         show_family_shopping,
-        pattern="family_show"
+        pattern="^family_show$"
+    )
+)
+
+app.add_handler(
+    CallbackQueryHandler(
+        remove_family_start,
+        pattern="^family_remove$"
+    )
+)
+
+app.add_handler(
+    CallbackQueryHandler(
+        remove_family_item,
+        pattern="^remove_family_"
     )
 )
 
 app.add_handler(
     CallbackQueryHandler(
         show_history,
-        pattern="history"
+        pattern="^history$"
     )
 )
 
 app.add_handler(
     CallbackQueryHandler(
         check_warnings,
-        pattern="warnings"
+        pattern="^warnings$"
     )
 )
 
