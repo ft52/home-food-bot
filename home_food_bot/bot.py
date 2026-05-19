@@ -30,7 +30,7 @@ TOKEN = os.getenv("TOKEN")
 conn = sqlite3.connect("database.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# Продукты
+# PRODUCTS
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS products (
 )
 """)
 
-# Список покупок
+# AUTO SHOPPING LIST
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS shopping_list (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,7 +50,17 @@ CREATE TABLE IF NOT EXISTS shopping_list (
 )
 """)
 
-# История действий
+# FAMILY SHOPPING LIST
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS family_shopping (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_name TEXT NOT NULL,
+    added_by TEXT NOT NULL,
+    created_at TEXT
+)
+""")
+
+# HISTORY
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,13 +81,17 @@ conn.commit()
     ADD_CATEGORY,
     ADD_EXPIRATION,
     ADD_MIN_QUANTITY,
+
     REMOVE_PRODUCT,
     REMOVE_QUANTITY,
-    SHOPPING_ADD,
-) = range(8)
+
+    FAMILY_SHOPPING_NAME,
+    FAMILY_SHOPPING_USER,
+
+) = range(9)
 
 # =========================================
-# KEYBOARD
+# MAIN KEYBOARD
 # =========================================
 
 main_keyboard = ReplyKeyboardMarkup(
@@ -85,7 +99,10 @@ main_keyboard = ReplyKeyboardMarkup(
         ["➕ Добавить продукт"],
         ["📦 Список продуктов"],
         ["❌ Удалить продукт"],
-        ["🛒 Список покупок"],
+
+        ["📝 Добавить в покупки"],
+        ["🛒 Общий список покупок"],
+
         ["📜 История"],
         ["⚠️ Проверить уведомления"],
     ],
@@ -97,8 +114,13 @@ main_keyboard = ReplyKeyboardMarkup(
 # =========================================
 
 def add_history(action):
+
     cursor.execute(
-        "INSERT INTO history (action, created_at) VALUES (?, ?)",
+        """
+        INSERT INTO history
+        (action, created_at)
+        VALUES (?, ?)
+        """,
         (
             action,
             datetime.now().strftime("%d.%m.%Y %H:%M")
@@ -112,6 +134,7 @@ def add_history(action):
 # =========================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
         "🏠 Семейный бот учета продуктов",
         reply_markup=main_keyboard
@@ -122,6 +145,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================
 
 async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
         "Введите название продукта:",
         reply_markup=ReplyKeyboardRemove()
@@ -130,6 +154,7 @@ async def add_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_NAME
 
 async def add_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     context.user_data["name"] = update.message.text.strip()
 
     await update.message.reply_text(
@@ -139,6 +164,7 @@ async def add_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_QUANTITY
 
 async def add_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     try:
         quantity = int(update.message.text)
 
@@ -165,10 +191,11 @@ async def add_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADD_QUANTITY
 
 async def add_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     context.user_data["category"] = update.message.text.strip()
 
     await update.message.reply_text(
-        "Введите срок годности в формате:\n"
+        "Введите срок годности:\n"
         "ДД.ММ.ГГГГ\n\n"
         "Пример:\n"
         "25.12.2026"
@@ -177,6 +204,7 @@ async def add_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_EXPIRATION
 
 async def add_expiration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     try:
         expiration = update.message.text.strip()
 
@@ -185,20 +213,20 @@ async def add_expiration(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["expiration"] = expiration
 
         await update.message.reply_text(
-            "Введите минимальный остаток для уведомления:"
+            "Введите минимальный остаток:"
         )
 
         return ADD_MIN_QUANTITY
 
     except:
         await update.message.reply_text(
-            "Неверный формат даты.\n"
-            "Пример: 25.12.2026"
+            "Неверный формат даты."
         )
 
         return ADD_EXPIRATION
 
 async def add_min_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     try:
         min_quantity = int(update.message.text)
 
@@ -210,69 +238,63 @@ async def add_min_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         category = context.user_data["category"]
         expiration = context.user_data["expiration"]
 
-        cursor.execute(
-            """
-            SELECT id, quantity
-            FROM products
-            WHERE name = ?
-            """,
-            (name,)
-        )
+        cursor.execute("""
+        SELECT id, quantity
+        FROM products
+        WHERE name = ?
+        """, (name,))
 
         result = cursor.fetchone()
 
         if result:
+
             product_id, current_quantity = result
 
             new_quantity = current_quantity + quantity
 
-            cursor.execute(
-                """
-                UPDATE products
-                SET quantity = ?,
-                    category = ?,
-                    expiration_date = ?,
-                    min_quantity = ?
-                WHERE id = ?
-                """,
-                (
-                    new_quantity,
-                    category,
-                    expiration,
-                    min_quantity,
-                    product_id
-                )
-            )
+            cursor.execute("""
+            UPDATE products
+            SET quantity = ?,
+                category = ?,
+                expiration_date = ?,
+                min_quantity = ?
+            WHERE id = ?
+            """,
+            (
+                new_quantity,
+                category,
+                expiration,
+                min_quantity,
+                product_id
+            ))
 
         else:
-            cursor.execute(
-                """
-                INSERT INTO products
-                (
-                    name,
-                    quantity,
-                    category,
-                    expiration_date,
-                    min_quantity
-                )
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    name,
-                    quantity,
-                    category,
-                    expiration,
-                    min_quantity
-                )
+
+            cursor.execute("""
+            INSERT INTO products
+            (
+                name,
+                quantity,
+                category,
+                expiration_date,
+                min_quantity
             )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                name,
+                quantity,
+                category,
+                expiration,
+                min_quantity
+            ))
 
         conn.commit()
 
         add_history(f"➕ Добавлено: {name} x{quantity}")
 
         await update.message.reply_text(
-            f"✅ Добавлено:\n"
-            f"{name} — {quantity}",
+            f"✅ Добавлено:\n{name} — {quantity}",
             reply_markup=main_keyboard
         )
 
@@ -290,6 +312,7 @@ async def add_min_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================
 
 async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     cursor.execute("""
     SELECT
         name,
@@ -303,6 +326,7 @@ async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     products = cursor.fetchall()
 
     if not products:
+
         await update.message.reply_text(
             "📭 Список пуст",
             reply_markup=main_keyboard
@@ -335,6 +359,7 @@ async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================
 
 async def remove_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     cursor.execute("""
     SELECT id, name, quantity
     FROM products
@@ -344,6 +369,7 @@ async def remove_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     products = cursor.fetchall()
 
     if not products:
+
         await update.message.reply_text(
             "📭 Список пуст",
             reply_markup=main_keyboard
@@ -355,11 +381,12 @@ async def remove_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     product_map = {}
 
     for product_id, name, quantity in products:
-        button = f"{name} ({quantity})"
 
-        buttons.append([button])
+        button_text = f"{name} ({quantity})"
 
-        product_map[button] = product_id
+        buttons.append([button_text])
+
+        product_map[button_text] = product_id
 
     context.user_data["product_map"] = product_map
 
@@ -380,15 +407,17 @@ async def remove_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================
 
 async def remove_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     button_text = update.message.text
 
-    product_map = context.user_data["product_map"]
+    product_map = context.user_data.get("product_map", {})
 
     product_id = product_map.get(button_text)
 
     if not product_id:
+
         await update.message.reply_text(
-            "Продукт не найден",
+            "❌ Продукт не найден",
             reply_markup=main_keyboard
         )
 
@@ -396,8 +425,27 @@ async def remove_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["remove_product_id"] = product_id
 
+    cursor.execute("""
+    SELECT name
+    FROM products
+    WHERE id = ?
+    """, (product_id,))
+
+    result = cursor.fetchone()
+
+    if not result:
+
+        await update.message.reply_text(
+            "❌ Продукт не найден",
+            reply_markup=main_keyboard
+        )
+
+        return ConversationHandler.END
+
+    name = result[0]
+
     await update.message.reply_text(
-        "Сколько удалить?",
+        f"Сколько удалить у продукта:\n{name}?",
         reply_markup=ReplyKeyboardRemove()
     )
 
@@ -408,6 +456,7 @@ async def remove_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================
 
 async def remove_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     try:
         remove_count = int(update.message.text)
 
@@ -428,34 +477,38 @@ async def remove_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = cursor.fetchone()
 
         if not result:
+
             await update.message.reply_text(
-                "Продукт не найден",
+                "❌ Продукт не найден",
                 reply_markup=main_keyboard
             )
 
             return ConversationHandler.END
 
-        name, quantity, min_quantity = result
+        name, current_quantity, min_quantity = result
 
-        if remove_count > quantity:
+        if remove_count > current_quantity:
+
             await update.message.reply_text(
-                f"❌ У тебя только {quantity} шт.",
+                f"❌ У тебя только {current_quantity} шт.",
                 reply_markup=main_keyboard
             )
 
             return ConversationHandler.END
 
-        new_quantity = quantity - remove_count
+        new_quantity = current_quantity - remove_count
 
         if new_quantity == 0:
-            cursor.execute(
-                "DELETE FROM products WHERE id = ?",
-                (product_id,)
-            )
+
+            cursor.execute("""
+            DELETE FROM products
+            WHERE id = ?
+            """, (product_id,))
 
             message = f"❌ {name} полностью удалён"
 
         else:
+
             cursor.execute("""
             UPDATE products
             SET quantity = ?
@@ -468,15 +521,25 @@ async def remove_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         add_history(f"➖ Удалено: {name} x{remove_count}")
 
-        # Минимальный остаток
+        # AUTO SHOPPING LIST
         if new_quantity <= min_quantity and new_quantity > 0:
 
             cursor.execute("""
-            INSERT INTO shopping_list (name)
-            VALUES (?)
+            SELECT id
+            FROM shopping_list
+            WHERE name = ?
             """, (name,))
 
-            conn.commit()
+            exists = cursor.fetchone()
+
+            if not exists:
+
+                cursor.execute("""
+                INSERT INTO shopping_list (name)
+                VALUES (?)
+                """, (name,))
+
+                conn.commit()
 
             message += (
                 f"\n\n⚠️ {name} заканчивается "
@@ -491,6 +554,7 @@ async def remove_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     except:
+
         await update.message.reply_text(
             "Введите число."
         )
@@ -498,28 +562,123 @@ async def remove_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return REMOVE_QUANTITY
 
 # =========================================
-# SHOPPING LIST
+# FAMILY SHOPPING START
 # =========================================
 
-async def show_shopping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def family_shopping_start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    await update.message.reply_text(
+        "Что нужно купить?",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+    return FAMILY_SHOPPING_NAME
+
+# =========================================
+# FAMILY SHOPPING NAME
+# =========================================
+
+async def family_shopping_name(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    context.user_data["family_product"] = (
+        update.message.text.strip()
+    )
+
+    await update.message.reply_text(
+        "Кто добавляет?\n\n"
+        "Например:\n"
+        "Мама"
+    )
+
+    return FAMILY_SHOPPING_USER
+
+# =========================================
+# FAMILY SHOPPING USER
+# =========================================
+
+async def family_shopping_user(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    user_name = update.message.text.strip()
+
+    product_name = context.user_data["family_product"]
+
     cursor.execute("""
-    SELECT name FROM shopping_list
+    INSERT INTO family_shopping
+    (
+        product_name,
+        added_by,
+        created_at
+    )
+    VALUES (?, ?, ?)
+    """,
+    (
+        product_name,
+        user_name,
+        datetime.now().strftime("%d.%m.%Y %H:%M")
+    ))
+
+    conn.commit()
+
+    add_history(
+        f"🛒 В покупки добавлено: "
+        f"{product_name} ({user_name})"
+    )
+
+    await update.message.reply_text(
+        f"✅ Добавлено в общий список:\n"
+        f"{product_name}",
+        reply_markup=main_keyboard
+    )
+
+    return ConversationHandler.END
+
+# =========================================
+# SHOW FAMILY SHOPPING
+# =========================================
+
+async def show_family_shopping(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    cursor.execute("""
+    SELECT
+        product_name,
+        added_by,
+        created_at
+    FROM family_shopping
+    ORDER BY id DESC
     """)
 
     items = cursor.fetchall()
 
     if not items:
+
         await update.message.reply_text(
-            "🛒 Список покупок пуст",
+            "🛒 Общий список покупок пуст",
             reply_markup=main_keyboard
         )
 
         return
 
-    text = "🛒 Список покупок:\n\n"
+    text = "🛒 Общий список покупок:\n\n"
 
-    for item in items:
-        text += f"• {item[0]}\n"
+    for product_name, added_by, created_at in items:
+
+        text += (
+            f"• {product_name}\n"
+            f"  👤 {added_by}\n"
+            f"  🕒 {created_at}\n\n"
+        )
 
     await update.message.reply_text(
         text,
@@ -531,6 +690,7 @@ async def show_shopping(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================
 
 async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     cursor.execute("""
     SELECT action, created_at
     FROM history
@@ -541,6 +701,7 @@ async def show_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     items = cursor.fetchall()
 
     if not items:
+
         await update.message.reply_text(
             "📜 История пуста",
             reply_markup=main_keyboard
@@ -586,17 +747,19 @@ async def check_warnings(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "%d.%m.%Y"
         )
 
-        days_left = (expiration_date - now).days
+        days_left = (
+            expiration_date - now
+        ).days
 
-        # Проверка срока
         if days_left <= 3:
+
             text += (
                 f"⚠️ Скоро испортится:\n"
                 f"{name} — через {days_left} дн.\n\n"
             )
 
-        # Проверка количества
         if quantity <= min_quantity:
+
             text += (
                 f"⚠️ Заканчивается:\n"
                 f"{name} — осталось {quantity}\n\n"
@@ -615,6 +778,7 @@ async def check_warnings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await update.message.reply_text(
         "Действие отменено",
         reply_markup=main_keyboard
@@ -633,9 +797,11 @@ app = ApplicationBuilder().token(TOKEN).build()
 # =========================================
 
 add_handler = ConversationHandler(
+
     entry_points=[
         MessageHandler(
-            filters.TEXT & filters.Regex("^➕ Добавить продукт$"),
+            filters.TEXT &
+            filters.Regex("^➕ Добавить продукт$"),
             add_start
         )
     ],
@@ -688,9 +854,11 @@ add_handler = ConversationHandler(
 # =========================================
 
 remove_handler = ConversationHandler(
+
     entry_points=[
         MessageHandler(
-            filters.TEXT & filters.Regex("^❌ Удалить продукт$"),
+            filters.TEXT &
+            filters.Regex("^❌ Удалить продукт$"),
             remove_start
         )
     ],
@@ -718,6 +886,42 @@ remove_handler = ConversationHandler(
 )
 
 # =========================================
+# FAMILY SHOPPING HANDLER
+# =========================================
+
+family_shopping_handler = ConversationHandler(
+
+    entry_points=[
+        MessageHandler(
+            filters.TEXT &
+            filters.Regex("^📝 Добавить в покупки$"),
+            family_shopping_start
+        )
+    ],
+
+    states={
+
+        FAMILY_SHOPPING_NAME: [
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND,
+                family_shopping_name
+            )
+        ],
+
+        FAMILY_SHOPPING_USER: [
+            MessageHandler(
+                filters.TEXT & ~filters.COMMAND,
+                family_shopping_user
+            )
+        ]
+    },
+
+    fallbacks=[
+        CommandHandler("cancel", cancel)
+    ],
+)
+
+# =========================================
 # REGISTER HANDLERS
 # =========================================
 
@@ -727,36 +931,42 @@ app.add_handler(add_handler)
 
 app.add_handler(remove_handler)
 
+app.add_handler(family_shopping_handler)
+
 app.add_handler(
     MessageHandler(
-        filters.TEXT & filters.Regex("^📦 Список продуктов$"),
+        filters.TEXT &
+        filters.Regex("^📦 Список продуктов$"),
         show_products
     )
 )
 
 app.add_handler(
     MessageHandler(
-        filters.TEXT & filters.Regex("^🛒 Список покупок$"),
-        show_shopping
+        filters.TEXT &
+        filters.Regex("^🛒 Общий список покупок$"),
+        show_family_shopping
     )
 )
 
 app.add_handler(
     MessageHandler(
-        filters.TEXT & filters.Regex("^📜 История$"),
+        filters.TEXT &
+        filters.Regex("^📜 История$"),
         show_history
     )
 )
 
 app.add_handler(
     MessageHandler(
-        filters.TEXT & filters.Regex("^⚠️ Проверить уведомления$"),
+        filters.TEXT &
+        filters.Regex("^⚠️ Проверить уведомления$"),
         check_warnings
     )
 )
 
 # =========================================
-# START
+# START BOT
 # =========================================
 
 print("Бот запущен...")
