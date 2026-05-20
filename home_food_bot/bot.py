@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import requests 
 from datetime import datetime
 
 from telegram import (
@@ -23,6 +24,7 @@ from telegram.ext import (
 # =========================================
 
 TOKEN = os.getenv("TOKEN")
+WEBHOOK_URL = "https://revelation.app.n8n.cloud/webhook/food-bot"
 
 # =========================================
 # DATABASE
@@ -304,6 +306,16 @@ async def add_min_quantity(update: Update, context):
             ))
 
         conn.commit()
+        requests.post(
+    WEBHOOK_URL,
+    json={
+        "action": "add_product",
+        "name": name,
+        "quantity": quantity,
+        "category": category,
+        "min_quantity": min_quantity,
+    }
+)
 
         add_history(
             f"➕ Добавлено: {name} x{quantity}"
